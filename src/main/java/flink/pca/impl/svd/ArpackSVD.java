@@ -1,4 +1,4 @@
-package flink.pca.impl;
+package flink.pca.impl.svd;
 
 import java.util.Arrays;
 
@@ -10,7 +10,9 @@ import org.netlib.util.intW;
 
 import com.github.fommil.netlib.ARPACK;
 
-public class Arpack {
+import flink.pca.impl.mult.Multiplicator;
+
+public class ArpackSVD {
 	
 	private static class EigenPair implements Comparable<EigenPair> {
 		
@@ -32,11 +34,20 @@ public class Arpack {
 				return 0;
 			}
 		}
-		
-		
+	}
+	
+	private DenseMatrix U;
+	private double[] sigmas;
+	
+	public DenseMatrix getU(){
+		return U;
+	}
+	
+	public double[] getSigmas(){
+		return sigmas;
 	}
 
-	public static DenseMatrix symmetricEigs(Multiplicator mul, int k, int n, double tol, int maxIter) {
+	public void symmetricEigs(Multiplicator mul, int k, int n, double tol, int maxIter) {
 		
 		ARPACK arpack = ARPACK.getInstance();
 		
@@ -132,12 +143,13 @@ public class Arpack {
 	    // sort the eigen-pairs in descending order
 	    Arrays.sort(eigenPairs);
 	    
-	    DenseMatrix sortedU = new DenseMatrix(computed, n);
+	    U = new DenseMatrix(n, computed);
+	    sigmas = new double[computed];
 	    for (int i = 0; i < computed; i++) {
+	    	sigmas[i] = eigenPairs[i].value;
 	    	for (int j = 0; j < n; j++) {
-	    		sortedU.set(i, j, eigenPairs[i].vector[j]);
+	    		U.set(j, i, eigenPairs[i].vector[j]);
 	    	}
 	    }
-	    return sortedU;
 	}
 }

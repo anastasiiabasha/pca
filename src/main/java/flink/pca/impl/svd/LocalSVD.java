@@ -1,4 +1,4 @@
-package flink.pca.impl;
+package flink.pca.impl.svd;
 
 import no.uib.cipr.matrix.DenseMatrix;
 import no.uib.cipr.matrix.SVD;
@@ -33,16 +33,16 @@ public  class LocalSVD {
 		}
 	}
 	
-	public double[] getU(){
-		return U.getData();
+	public DenseMatrix getU(){
+		return U;
 	}
 	
 	public double[] getS(){
 		return S;
 	}
 	
-	public double[] getVt(){
-		return Vt.getData();
+	public DenseMatrix getVt(){
+		return Vt;
 	}
 	
 	public void printU() {

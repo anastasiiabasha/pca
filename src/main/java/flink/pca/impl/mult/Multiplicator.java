@@ -1,4 +1,4 @@
-package flink.pca.impl;
+package flink.pca.impl.mult;
 
 import no.uib.cipr.matrix.DenseVector;
 
