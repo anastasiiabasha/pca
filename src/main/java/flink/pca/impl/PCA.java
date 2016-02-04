@@ -1,7 +1,9 @@
 package flink.pca.impl;
 
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map.Entry;
 
 import no.uib.cipr.matrix.DenseMatrix;
 import no.uib.cipr.matrix.DenseVector;
@@ -9,11 +11,10 @@ import no.uib.cipr.matrix.DenseVector;
 import org.apache.flink.api.common.functions.FlatMapFunction;
 import org.apache.flink.api.common.functions.GroupReduceFunction;
 import org.apache.flink.api.common.functions.MapFunction;
+import org.apache.flink.api.common.functions.MapPartitionFunction;
 import org.apache.flink.api.java.DataSet;
-import org.apache.flink.api.java.ExecutionEnvironment;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.api.java.tuple.Tuple3;
-import org.apache.flink.api.java.tuple.Tuple4;
 import org.apache.flink.util.Collector;
 
 import flink.pca.impl.mult.DistMatrixVectorMultiplicator;
@@ -116,9 +117,7 @@ public class PCA {
 	private DenseMatrix computeGramian(DataSet<double[]> dataset, int n, double[] means, int m) throws Exception {
 		
 		DataSet<Tuple3<Integer, Integer,Double>> result = dataset
-				.flatMap(new MapMatrix(means))
-				.groupBy(0,1)
-				.reduceGroup(new ReduceMatrix(m));
+					.mapPartition(new MapMatrix(means, m, n)).groupBy(0, 1).sum(2);
 		List<Tuple3<Integer, Integer,Double>> values = result.collect();
 		DenseMatrix matrix = new DenseMatrix(n, n);
 		for (Tuple3<Integer, Integer, Double> tuple : values) {
@@ -186,60 +185,72 @@ public class PCA {
 		}
 	}
 	
-    private static final class MapMatrix implements FlatMapFunction<double[], Tuple4<Integer, Integer, Double, Double>> {
-
-		private static final long serialVersionUID = 1L;
-		public double[] means;
+	public static class MapMatrix implements MapPartitionFunction<double[], Tuple3<Integer, Integer, Double>> {
 		
-		public MapMatrix(double[] means) {
-			this.means = means;
-		}
-
-		public void flatMap(double[] vector,
-				Collector<Tuple4<Integer, Integer, Double, Double>> out) {
-
-			for (int i = 0; i < vector.length; i++) {
-				for (int j = i + 1; j < vector.length; j++) {
-					out.collect(new Tuple4<Integer, Integer, Double, Double>(i, j, vector[i] - means[i], vector[j] - means[j]));
-				}
-			}
-		}
-	}
-    
-	private static class ReduceMatrix implements
-			GroupReduceFunction<Tuple4<Integer, Integer, Double, Double>, Tuple3<Integer, Integer, Double>> {
-
 		private static final long serialVersionUID = 1L;
-		
+		private double[] means;
 		private int m;
+		private int n;
 		
-		public ReduceMatrix(int m) {
+		public MapMatrix(double[] means, int m, int n) {
+			this.means = means;
 			this.m = m;
+			this.n = n;
 		}
 
 		@Override
-		public void reduce(
-				Iterable<Tuple4<Integer, Integer, Double, Double>> inTuple,
-				Collector<Tuple3<Integer, Integer, Double>> outTuple)
+		public void mapPartition(
+				Iterable<double[]> values,
+				Collector<Tuple3<Integer, Integer, Double>> out)
 				throws Exception {
-			int i = 0;
-			int j = 0;
-			double x = 0.;
-			double y = 0.;
-			double innerProduct = 0;
-			
-			for (Tuple4<Integer, Integer, Double, Double> tuple : inTuple) {
-				i = tuple.f0;
-				j = tuple.f1;
-				x = x + tuple.f2 * tuple.f2;
-				y = y + tuple.f3 * tuple.f3;
-				innerProduct = innerProduct + (tuple.f2 * tuple.f3);
-			}
+			boolean[] added = new boolean[n];
+			HashMap<Tuple2<Integer, Integer>, Double> hash = new HashMap<Tuple2<Integer, Integer>, Double>();
+			for (double[] vector : values) {
+				for (int i = 0; i < n; i++) {
+					for (int j = i + 1; j < n; j++) {
+						if (!added[i]) {
+							Tuple2<Integer, Integer> tuple = new Tuple2<Integer, Integer>(
+									i, i);
+							if (hash.containsKey(tuple)) {
+								Double previous = hash.get(tuple);
+								hash.put(tuple, previous + (vector[i] - means[i])
+										* (vector[i] - means[i]) / m);
+							} else {
+								hash.put(tuple, (vector[i] - means[i]) * (vector[i] - means[i]) / m);
+							}
+							added[i] = true;
+						}
 
-			outTuple.collect(new Tuple3<Integer, Integer, Double>(i, i, x/m));
-			outTuple.collect(new Tuple3<Integer, Integer, Double>(j, j, y/m));
-			outTuple.collect(new Tuple3<Integer, Integer, Double>(i, j, innerProduct/m));
+						if (!added[j]) {
+							Tuple2<Integer, Integer> tuple = new Tuple2<Integer, Integer>(
+									j, j);
+							if (hash.containsKey(tuple)) {
+								Double previous = hash.get(tuple);
+								hash.put(tuple, previous + (vector[j] - means[j])
+										* (vector[j] - means[j]) / m);
+							} else {
+								hash.put(tuple, (vector[j] - means[j]) * (vector[j] - means[j]) / m);
+							}
+							added[j] = true;
+						}
+
+						Tuple2<Integer, Integer> tuple = new Tuple2<Integer, Integer>(
+								i, j);
+
+						if (hash.containsKey(tuple)) {
+							Double previous = hash.get(tuple);
+							hash.put(tuple, previous +(vector[i] - means[i]) * (vector[j] - means[j])
+									/ m);
+						} else {
+							hash.put(tuple, (vector[i] - means[i]) * (vector[j] - means[j]) / m);
+						}
+					}
+				}
+				Arrays.fill(added, false);
+			}
+			for (Entry<Tuple2<Integer, Integer>, Double> entry : hash.entrySet()) {
+				out.collect(new Tuple3<Integer, Integer, Double>(entry.getKey().f0, entry.getKey().f1, entry.getValue()));
+			}
 		}
 	}
-
 }
