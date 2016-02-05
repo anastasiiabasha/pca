@@ -203,37 +203,10 @@ public class PCA {
 				Iterable<double[]> values,
 				Collector<Tuple3<Integer, Integer, Double>> out)
 				throws Exception {
-			boolean[] added = new boolean[n];
 			HashMap<Tuple2<Integer, Integer>, Double> hash = new HashMap<Tuple2<Integer, Integer>, Double>();
 			for (double[] vector : values) {
 				for (int i = 0; i < n; i++) {
-					for (int j = i + 1; j < n; j++) {
-						if (!added[i]) {
-							Tuple2<Integer, Integer> tuple = new Tuple2<Integer, Integer>(
-									i, i);
-							if (hash.containsKey(tuple)) {
-								Double previous = hash.get(tuple);
-								hash.put(tuple, previous + (vector[i] - means[i])
-										* (vector[i] - means[i]) / m);
-							} else {
-								hash.put(tuple, (vector[i] - means[i]) * (vector[i] - means[i]) / m);
-							}
-							added[i] = true;
-						}
-
-						if (!added[j]) {
-							Tuple2<Integer, Integer> tuple = new Tuple2<Integer, Integer>(
-									j, j);
-							if (hash.containsKey(tuple)) {
-								Double previous = hash.get(tuple);
-								hash.put(tuple, previous + (vector[j] - means[j])
-										* (vector[j] - means[j]) / m);
-							} else {
-								hash.put(tuple, (vector[j] - means[j]) * (vector[j] - means[j]) / m);
-							}
-							added[j] = true;
-						}
-
+					for (int j = i; j < n; j++) {
 						Tuple2<Integer, Integer> tuple = new Tuple2<Integer, Integer>(
 								i, j);
 
@@ -246,7 +219,6 @@ public class PCA {
 						}
 					}
 				}
-				Arrays.fill(added, false);
 			}
 			for (Entry<Tuple2<Integer, Integer>, Double> entry : hash.entrySet()) {
 				out.collect(new Tuple3<Integer, Integer, Double>(entry.getKey().f0, entry.getKey().f1, entry.getValue()));

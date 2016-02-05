@@ -1,12 +1,12 @@
 package flink.pca.impl.mult;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map.Entry;
 
-import org.apache.flink.api.common.functions.FlatMapFunction;
-import org.apache.flink.api.common.functions.GroupReduceFunction;
+import org.apache.flink.api.common.functions.MapPartitionFunction;
 import org.apache.flink.api.java.DataSet;
 import org.apache.flink.api.java.tuple.Tuple2;
-import org.apache.flink.api.java.tuple.Tuple4;
 import org.apache.flink.util.Collector;
 
 import no.uib.cipr.matrix.DenseVector;
@@ -27,10 +27,8 @@ public class DistMatrixVectorMultiplicator implements Multiplicator {
 	@Override
 	public DenseVector multipy(DenseVector v) {
 		DataSet<Tuple2<Integer,Double>> gramianMatrixWithVector = dataset
-				.flatMap(new DistMultMapMatrix(means))
-				.groupBy(0)
-				.reduceGroup(new DistMultReduceMatrix(m, v.getData()));
-				
+					.mapPartition(new DistMultMapMatrix(means, v.getData(), m))
+					.groupBy(0).sum(1);
 		try {
 			List<Tuple2<Integer, Double>> res = gramianMatrixWithVector.collect();
 			DenseVector vector = new DenseVector(new double[res.size()]);
@@ -45,52 +43,39 @@ public class DistMatrixVectorMultiplicator implements Multiplicator {
 		}
 	}
 	
-	private static final class DistMultMapMatrix implements FlatMapFunction<double[], Tuple4<Integer, Integer, Double, Double>> {
+	private static final class DistMultMapMatrix implements MapPartitionFunction<double[], Tuple2<Integer, Double>> {
 
 		private static final long serialVersionUID = 1L;
 		
 		private double[] means;
-		
-		public DistMultMapMatrix(double[] means) {
-			this.means = means;
-		}
-
-		public void flatMap(double[] vector, Collector<Tuple4<Integer, Integer, Double, Double>> out) {
-			for(int i = 0; i < vector.length; i++) {
-			  for(int j = 0; j < vector.length; j++){
-				  out.collect(new Tuple4<Integer, Integer, Double, Double>(i, j, vector[i] - means[i], vector[j] - means[j]));
-			   } 
-			}
-		}
-	}
-	
-	private static class DistMultReduceMatrix implements
-				GroupReduceFunction<Tuple4<Integer, Integer, Double, Double>, Tuple2<Integer, Double>> {
-
-		private static final long serialVersionUID = 1L;
 		private double[] vectorV;
 		private int m;
-
-		public DistMultReduceMatrix(int m, double[] vectorV) {
-			this.vectorV = vectorV;
+		
+		public DistMultMapMatrix(double[] means, double[] v, int m) {
+			this.means = means;
+			this.vectorV = v;
 			this.m = m;
 		}
 
 		@Override
-		public void reduce(
-				Iterable<Tuple4<Integer, Integer, Double, Double>> inTuple,
-				Collector<Tuple2<Integer, Double>> outTuple) throws Exception {
-			int x = 0;
-			int y = 0;
-			double innerProduct = 0;
-
-			for (Tuple4<Integer, Integer, Double, Double> tuple : inTuple) {
-				x = tuple.f0;
-				y = tuple.f1;
-				innerProduct = innerProduct
-						+ (tuple.f2 * tuple.f3 * vectorV[y]);
+		public void mapPartition(Iterable<double[]> values,
+				Collector<Tuple2<Integer, Double>> out)
+				throws Exception {
+			HashMap<Integer, Double> hash = new HashMap<Integer, Double>();
+			for (double[] vector : values) {
+				for(int i = 0; i < vector.length; i++) {
+					for(int j = 0; j < vector.length; j++){
+						if (hash.containsKey(i)) {
+							hash.put(i, hash.get(i) + (vector[i] - means[i]) * (vector[j] - means[j]) * vectorV[j] / m);
+						} else {
+							hash.put(i, (vector[i] - means[i]) * (vector[j] - means[j]) * vectorV[j] / m);
+						}
+					}
+				}
 			}
-			outTuple.collect(new Tuple2<Integer, Double>(x, innerProduct / m));
+			for (Entry<Integer, Double> entry : hash.entrySet()) {
+				out.collect(new Tuple2<Integer, Double>(entry.getKey(), entry.getValue()));
+			}
 		}
 	}
 }
