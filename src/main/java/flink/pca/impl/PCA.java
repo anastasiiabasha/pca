@@ -8,8 +8,6 @@ import java.util.Map.Entry;
 import no.uib.cipr.matrix.DenseMatrix;
 import no.uib.cipr.matrix.DenseVector;
 
-import org.apache.flink.api.common.functions.FlatMapFunction;
-import org.apache.flink.api.common.functions.GroupReduceFunction;
 import org.apache.flink.api.common.functions.MapFunction;
 import org.apache.flink.api.common.functions.MapPartitionFunction;
 import org.apache.flink.api.java.DataSet;
@@ -18,38 +16,69 @@ import org.apache.flink.api.java.tuple.Tuple3;
 import org.apache.flink.util.Collector;
 
 import flink.pca.impl.mult.DistMatrixVectorMultiplicator;
-import flink.pca.impl.mult.LocalMatrixVectorMultiplicator;
 import flink.pca.impl.svd.ArpackSVD;
 import flink.pca.impl.svd.LocalSVD;
+import flink.pca.impl.svd.SVD;
 
 public class PCA {
 	
-	public DataSet<double[]> project(int k, int n, DataSet<double[]> dataset, PCAmode mode) throws Exception {
+	/**
+	 * @param k - number of principal components to compute
+	 * @param n - number of features/columns in matrix
+	 * @param dataset - Flink DataSet<double[]> row-representation of matrix
+	 * @param mode - AUTO, DIST or LOCAL. If AUTO is given - decides the mode based on n and k parameters
+	 * @return  Flink DataSet<double[]> original matrix projected on principal components
+	 * @throws Exception - if Flink job is disrupted
+	 */
+	public DataSet<double[]> project(int k, int n, DataSet<double[]> dataset, PCAmode mode) 
+			throws Exception {
 		DenseMatrix V = computeSVD(k, n, dataset, mode);
-		
 		DataSet<double[]> result = dataset.map(new MatrixMult(V.getData(), V.numRows(), V.numColumns()));
 		return result;
 	}
 	
-	private DenseMatrix computeSVD(int k, int n, DataSet<double[]> dataset, PCAmode mode) throws Exception {
+	/**
+	 * 
+	 * Method to compute the SVD of the datamatrix.
+	 * If the computation mode isn't given, decided the mode based on the size of the matrix 
+	 * @param k - number of principal components to compute
+	 * @param n - number of features/columns in the matrix
+	 * @param dataset - Flink DataSet<double[]> row-representation of matrix
+	 * @param mode - AUTO, DIST or LOCAL. If AUTO is given - decides the mode based on n and k parameters
+	 * @return U matrix from 
+	 * @throws Exception if flink job was disrupted
+	 */
+	@SuppressWarnings("incomplete-switch")
+	private DenseMatrix computeSVD(int k, int n, DataSet<double[]> dataset, PCAmode mode) 
+			throws Exception {
+		
+		if (n > 65535) {
+			throw new Exception("Number of columns too big for computation");
+		}
+		
+		if (n > 10000) {
+			if (k > n/2)
+				System.out.println("WARNING: At least " + n * n / 250000 + " MB of memory required!");
+			else 
+				System.out.println("WARNING: At least " + n * 2 * k / 250000 + " MB of memory required!");
+		}
 		
 		if (mode == PCAmode.AUTO) {
-			if (n < 100 || (k > n / 2 && n <= 15000)) {
-				if (k < n / 3) {
-					mode = PCAmode.LOCALARPACK;
-				} else {
-					mode = PCAmode.LOCAL;
-				}
+			if (n < 15000 || (k > n / 3 && n <= 15000)) {
+				mode = PCAmode.LOCAL;
 			} else {
 				mode = PCAmode.DIST;
 			}
 		}
-		DenseMatrix res = null;
-		double[] sigmas = null;
+		
+		//Computing the mean values of each columns in order
+		//to center the data matrix
 		List<Tuple3<Integer, Double, Integer>> meansList = dataset
-				.flatMap(new AverageFlatMap())
+				.mapPartition(new AverageMap())
 				.groupBy(0)
-				.reduceGroup(new AverageGroupReduce()).collect();
+				.sum(1)
+				.andSum(2)
+				.collect();
 		
 		double[] means = new double[n];
 		int m = 0;
@@ -58,63 +87,71 @@ public class PCA {
 			m = tuple.f2;
 		}
 		
+		
+		SVD svd = null;
+		DenseMatrix U = null;
+		double[] sigmas = null;
+		
+		//Use different computation model depending on the mode
 		switch (mode) {
 			case LOCAL: {
-				DenseMatrix gramian = computeGramian(dataset, n, means, m);
-				LocalSVD svd = new LocalSVD(gramian.numRows(), gramian.numColumns(), gramian.getData());
-				svd.calculateSVD();
-				res = svd.getU();
-				sigmas = svd.getS();
-			}
-			break;
-		case LOCALARPACK: {
-				DenseMatrix gramian = computeGramian(dataset, n, means, m);
-				double tol = 1e-10;
-				int maxIter = Math.max(300, k * 3);
-				ArpackSVD arp = new ArpackSVD();
-				arp.symmetricEigs(new LocalMatrixVectorMultiplicator(gramian), k, n, tol, maxIter);
-				res = arp.getU();
-				sigmas = arp.getSigmas();
+				DenseMatrix gramian = computeCovarianceMatrix(dataset, n, means, m);
+				svd = new LocalSVD(gramian.numRows(), gramian.numColumns(), gramian.getData());
 			}
 			break;
 		case DIST: {
 				double tol = 1e-10;
 				int maxIter = Math.max(300, k * 3);
-				ArpackSVD arp = new ArpackSVD();
-				arp.symmetricEigs(new DistMatrixVectorMultiplicator(dataset, means, m), k, n, tol, maxIter);
-				res = arp.getU();
-				sigmas = arp.getSigmas();
+				svd = new ArpackSVD(new DistMatrixVectorMultiplicator(dataset, means, m), 
+						k, n, tol, maxIter);
 			}
 			break;
 		}
 		
+		svd.compute();
+		U = svd.getU();
+		sigmas = svd.getSigmas();
+		
+		//Discard the vectors if eigenvalues are smaller than (1e-9 * (the biggest eigenvalue))
 		double sigma0 = sigmas[0];
 		double rCond = 1e-9;
-	    double threshold = rCond * sigma0;
-	    int i = 0;
-	    // sigmas might have a length smaller than k, if some Ritz values do not satisfy the convergence
-	    // criterion specified by tol after max number of iterations.
-	    // Thus use i < min(k, sigmas.length) instead of i < k.
-	    if (sigmas.length < k) {
-	    	System.out.println("Requested "+ k + " singular values but only found " + sigmas.length+ " converged.");
-	    }
+		double threshold = rCond * sigma0;
+		int i = 0;
+		
+		// sigmas might have a length smaller than k, if some Ritz values do not satisfy the convergence
+		// criterion specified by tol after max number of iterations.
+		// Thus use i < min(k, sigmas.length) instead of i < k.
+		if (sigmas.length < k) {
+			System.out.println("Requested "+ k + " singular values but only found " 
+						+ sigmas.length+ " converged.");
+		}
 	    
-	    while (i < Math.min(k, sigmas.length) && sigmas[i] >= threshold) {
-	    	i++;
-	    }
+		while (i < Math.min(k, sigmas.length) && sigmas[i] >= threshold) {
+			i++;
+		}
 	    
-	    int sk = i;
+		int sk = i;
 
-	    if (sk < k) {
-	    	System.out.println("Requested "+ k + " singular values but only found " + sk + " nonzeros.");
-	    }
+		if (sk < k) {
+			System.out.println("Requested "+ k + " singular values but only found " 
+					+ sk + " nonzeros.");
+		}
 
-	    DenseMatrix V = new DenseMatrix(n, sk, Arrays.copyOfRange(res.getData(), 0, n * sk), false); 
-	    
-	    return V;
+		DenseMatrix V = new DenseMatrix(n, sk, Arrays.copyOfRange(U.getData(), 0, n * sk), false); 
+		return V;
 	}
 	
-	private DenseMatrix computeGramian(DataSet<double[]> dataset, int n, double[] means, int m) throws Exception {
+	/**
+	 * Covariance matrix computation
+	 * @param dataset
+	 * @param n - number of features/columns
+	 * @param means - array of per-column mean values
+	 * @param m - number of samples/rows in data matrix
+	 * @return covariance matrix
+	 * @throws Exception - if flink computation was disrupted
+	 */
+	private DenseMatrix computeCovarianceMatrix(DataSet<double[]> dataset, int n, double[] means, int m)
+			throws Exception {
 		
 		DataSet<Tuple3<Integer, Integer,Double>> result = dataset
 					.mapPartition(new MapMatrix(means, m, n)).groupBy(0, 1).sum(2);
@@ -124,17 +161,21 @@ public class PCA {
 			matrix.set(tuple.f0, tuple.f1, tuple.f2);
 			matrix.set(tuple.f1, tuple.f0, tuple.f2);
 		}
-		
 		return matrix;
 	}
 	
+	/**
+	 * Class used for Matrix multiplication
+	 * Assumes the broadcast of principal components projection matrix
+	 *
+	 */
 	private static final class MatrixMult implements MapFunction<double[], double[]> {
 		
 		private static final long serialVersionUID = 1L;
 		
-		private double[] pc;
-		private int n;
-		private int k;
+		private double[] 		pc;
+		private int 			n;
+		private int 			k;
 		
 		public MatrixMult(double[] principalComponents, int n, int k) {
 			this.pc = principalComponents;
@@ -149,49 +190,59 @@ public class PCA {
 			mat.transMult(new DenseVector(v), res);
 			return res.getData();
 		}
-
 	}
 	
-	private static final class AverageFlatMap implements FlatMapFunction<double[], Tuple2<Integer, Double>> {
+	/**
+	 * MapPartitionFunction to compute the average of all columns
+	 * Pre-computes sums and counts of a single partition for later aggregation
+	 */
+	public static class AverageMap implements MapPartitionFunction<double[], 
+											Tuple3<Integer, Double, Integer>> {
 
 		private static final long serialVersionUID = 1L;
 
 		@Override
-		public void flatMap(double[] value,
-				Collector<Tuple2<Integer, Double>> out) throws Exception {
-			for (int i = 0; i < value.length; i++) {
-				out.collect(new Tuple2<Integer, Double>(i, value[i]));
-			}
-		}
-	}
-	
-	private static final class AverageGroupReduce implements GroupReduceFunction<Tuple2<Integer,Double>,Tuple3<Integer, Double, Integer>> {
-
-		private static final long serialVersionUID = 1L;
-
-		@Override
-		public void reduce(Iterable<Tuple2<Integer, Double>> values,
+		public void mapPartition(Iterable<double[]> values,
 				Collector<Tuple3<Integer, Double, Integer>> out)
 				throws Exception {
-			double sum = 0.;
-			int count = 0;
-			int index = 0;
-			for (Tuple2<Integer, Double> tuple : values) {
-				index = tuple.f0;
-				sum += tuple.f1;
-				count++;
+			
+			HashMap<Integer, Tuple2<Double, Integer>> hash = new HashMap<Integer, 
+														Tuple2<Double, Integer>>();
+			for (double[] vector : values) {
+				for (int i = 0; i < vector.length; i++) {
+					Tuple2<Double, Integer> tuple = hash.get(i);
+					if (tuple == null) {
+						hash.put(i, new Tuple2<Double, Integer>(vector[i], 1));
+					} else {
+						hash.put(i, new Tuple2<Double, Integer>(vector[i] + tuple.f0, tuple.f1 + 1));
+					}
+				}
 			}
-			out.collect(new Tuple3<Integer, Double, Integer>(index, sum, count));
+			for (Entry<Integer, Tuple2<Double, Integer>> entry : hash.entrySet()) {
+				out.collect(new Tuple3<Integer, Double, Integer>(entry.getKey(), 
+						entry.getValue().f0, entry.getValue().f1));
+			}
 		}
+		
 	}
 	
-	public static class MapMatrix implements MapPartitionFunction<double[], Tuple3<Integer, Integer, Double>> {
+	/**
+	 * MapPartitionFunction used for computation of covariance matrix
+	 *
+	 */
+	public static class MapMatrix implements MapPartitionFunction<double[], 
+											Tuple3<Integer, Integer, Double>> {
 		
-		private static final long serialVersionUID = 1L;
-		private double[] means;
-		private int m;
-		private int n;
+		private static final long 		serialVersionUID = 1L;
+		private double[] 				means;
+		private int 					m;
+		private int 					n;
 		
+		/**
+		 * @param means - the vector holding the per-column mean values
+		 * @param m - number of samples/rows in matrix
+		 * @param n - number of features/column in matrix
+		 */
 		public MapMatrix(double[] means, int m, int n) {
 			this.means = means;
 			this.m = m;
@@ -203,15 +254,19 @@ public class PCA {
 				Iterable<double[]> values,
 				Collector<Tuple3<Integer, Integer, Double>> out)
 				throws Exception {
+			//pre-aggregate the partial dot-products in a hash
 			HashMap<Tuple2<Integer, Integer>, Double> hash = new HashMap<Tuple2<Integer, Integer>, Double>();
+			
 			for (double[] vector : values) {
 				for (int i = 0; i < n; i++) {
+					//compute only the upper triangle of the matrix
 					for (int j = i; j < n; j++) {
 						Tuple2<Integer, Integer> tuple = new Tuple2<Integer, Integer>(
 								i, j);
 
 						if (hash.containsKey(tuple)) {
 							Double previous = hash.get(tuple);
+							//use the centered values from the matrix
 							hash.put(tuple, previous +(vector[i] - means[i]) * (vector[j] - means[j])
 									/ m);
 						} else {
@@ -221,7 +276,8 @@ public class PCA {
 				}
 			}
 			for (Entry<Tuple2<Integer, Integer>, Double> entry : hash.entrySet()) {
-				out.collect(new Tuple3<Integer, Integer, Double>(entry.getKey().f0, entry.getKey().f1, entry.getValue()));
+				out.collect(new Tuple3<Integer, Integer, Double>(entry.getKey().f0, 
+							entry.getKey().f1, entry.getValue()));
 			}
 		}
 	}

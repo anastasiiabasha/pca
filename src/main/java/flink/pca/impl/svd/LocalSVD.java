@@ -1,86 +1,60 @@
 package flink.pca.impl.svd;
 
 import no.uib.cipr.matrix.DenseMatrix;
+import no.uib.cipr.matrix.NotConvergedException;
 import no.uib.cipr.matrix.SVD;
 
-public  class LocalSVD {
+/**
+ * Class for SVD computation on locally (in-memory) stored matrix.
+ * Doesn't do a deep copy of given matrix.
+ * Compute decomposition of matrix A, so that A = U*S*V.
+ *
+ */
+public  class LocalSVD implements flink.pca.impl.svd.SVD {
 	
-	DenseMatrix matA;
-	DenseMatrix U;
-	double[] S;
-	DenseMatrix Vt;
+	private DenseMatrix 		matrix;
+	private DenseMatrix 		U;
+	private double[] 			S;
+	private DenseMatrix 		V;
 	
-	
-	public LocalSVD(double[][] _vals) {
-		matA = new DenseMatrix(_vals);
+	/**
+	 * @param vals - matrix in a form of array of arrays
+	 */
+	public LocalSVD(double[][] vals) {
+		matrix = new DenseMatrix(vals);
 	}
 	
+	/**
+	 * @param rows - number of rows
+	 * @param columns - number of columns
+	 * @param vals - 1-D array of size rows * columns, stored column-wise
+	 */
 	public LocalSVD(int rows, int columns, double[] vals) {
-		matA = new DenseMatrix(rows, columns, vals, false);
+		matrix = new DenseMatrix(rows, columns, vals, false);
 	}
 	
-	public boolean calculateSVD() {
-		try {
-			SVD svd = new SVD(matA.numRows(), matA.numColumns());
-			SVD s = svd.factor(matA);
-			U = s.getU();
-			S = s.getS();
-			Vt = s.getVt();
-			return true;
-		} catch (Exception e) {
-			System.out.println(e.getMessage());
-			return false;
-		}
+	/**
+	 * Computes SVD
+	 * 
+	 * @throws NotConvergedException - when iterative process lacks convergence
+	 */
+	public void compute() throws NotConvergedException {
+		SVD svd = new SVD(matrix.numRows(), matrix.numColumns());
+		SVD s = svd.factor(matrix);
+		U = s.getU();
+		S = s.getS();
+		V = s.getVt();
 	}
 	
 	public DenseMatrix getU(){
 		return U;
 	}
 	
-	public double[] getS(){
+	public double[] getSigmas(){
 		return S;
 	}
 	
-	public DenseMatrix getVt(){
-		return Vt;
+	public DenseMatrix getV(){
+		return V;
 	}
-	
-	public void printU() {
-		System.out.println("\nSVD Matrix U  ");
-		for (int i = 0; i < U.numRows(); i++) {
-			for (int j = 0; j < U.numColumns(); j++) {
-				System.out.print(U.get(i, j) + "  ");
-			}
-			System.out.print("\n");
-		}
-	}
-	
-	public void printS() {
-		System.out.println("\nSVD Matrix S  ");
-		for (int i = 0; i < S.length; i++) {
-			System.out.print(S[i] + "  ");
-		}
-		System.out.print("\n");
-	}
-	
-	public void printVt() {
-		System.out.println("\nSVD Matrix Vt  ");
-		for (int i = 0; i < Vt.numRows(); i++) {
-			for (int j = 0; j < Vt.numColumns(); j++) {
-				System.out.print(Vt.get(i, j) + "  ");
-			}
-			System.out.print("\n");
-		}
-	}
-	
-	public void printMainMat() {
-		System.out.println("\nMatrix:    ");
-		for (int i = 0; i < matA.numRows(); i++) {
-			for (int j = 0; j < matA.numColumns(); j++) {
-				System.out.print(matA.get(i, j) + "  ");
-			}
-			System.out.print("\n");
-		}
-	}
-
 }

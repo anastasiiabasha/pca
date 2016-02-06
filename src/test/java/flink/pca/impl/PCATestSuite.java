@@ -22,11 +22,6 @@ public class PCATestSuite {
 	}
 	
 	@Test
-	public void testWithLocalArpackMode() throws Exception {
-		testWithMode(PCAmode.LOCALARPACK);
-	}
-	
-	@Test
 	public void testWithDistMode() throws Exception {
 		testWithMode(PCAmode.DIST);
 	}
@@ -34,11 +29,6 @@ public class PCATestSuite {
 	@Test
 	public void test1DWithLocalMode() throws Exception {
 		testWith1D_data(PCAmode.LOCAL);
-	}
-	
-	@Test
-	public void test1DWithLocalArpackMode() throws Exception {
-		testWith1D_data(PCAmode.LOCALARPACK);
 	}
 	
 	@Test
@@ -147,29 +137,29 @@ public class PCATestSuite {
 		//Discard the vectors if eigenvalues are smaller than (1e-9 * (the biggest eigenvalue))
 		double sigma0 = sigmas[0];
 		double rCond = 1e-9;
-	    double threshold = rCond * sigma0;
+		double threshold = rCond * sigma0;
 	    
-	    int i = 0;
+		int i = 0;
 	    
-	    while (i < Math.min(testk, sigmas.length) && sigmas[i] >= threshold) {
-	    	i++;
-	    }
+		while (i < Math.min(testk, sigmas.length) && sigmas[i] >= threshold) {
+			i++;
+		}
 	    
-	    int sk = i;
+		int sk = i;
 
-	    //Warning if the amount of principal components is smaller than expected
-	    if (sk < testk) {
-	    	System.out.println("Requested "+ testk + " singular values but only found " + sk + " nonzeros.");
-	    }
+		//Warning if the amount of principal components is smaller than expected
+		if (sk < testk) {
+			System.out.println("Requested "+ testk + " singular values but only found " + sk + " nonzeros.");
+		}
 
-	    DenseMatrix pc = new DenseMatrix(covarianceMatrix.numColumns(), sk, 
-	    		Arrays.copyOfRange(evectors.getData(), 0, covarianceMatrix.numColumns() * sk), false); 
+		DenseMatrix pc = new DenseMatrix(covarianceMatrix.numColumns(), sk, 
+				Arrays.copyOfRange(evectors.getData(), 0, covarianceMatrix.numColumns() * sk), false); 
 	    
-	    //Project the initial data matrix onto the principal components
-	    DenseMatrix projectedDataMatrix = new DenseMatrix(dmatrix.numRows(), sk);
-	    dmatrix.mult(pc, projectedDataMatrix);
+		//Project the initial data matrix onto the principal components
+		DenseMatrix projectedDataMatrix = new DenseMatrix(dmatrix.numRows(), sk);
+		dmatrix.mult(pc, projectedDataMatrix);
 	    
-	    return projectedDataMatrix;
+		return projectedDataMatrix;
 	}
 
 }
