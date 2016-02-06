@@ -12,10 +12,10 @@ import no.uib.cipr.matrix.SVD;
  */
 public  class LocalSVD implements flink.pca.impl.svd.SVD {
 	
-	private DenseMatrix			matrix;
-	private DenseMatrix			U;
-	private double[]			S;
-	private DenseMatrix			V;
+	private DenseMatrix         matrix;
+	private DenseMatrix         U;
+	private double[]            S;
+	private DenseMatrix         V;
 	
 	/**
 	 * @param vals - matrix in a form of array of arrays
