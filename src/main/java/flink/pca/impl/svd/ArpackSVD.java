@@ -41,13 +41,13 @@ public class ArpackSVD implements SVD {
 		}
 	}
 
-	private DenseMatrix 		U;
-	private double[] 			sigmas;
-	private Multiplicator 		multiplicator;
-	private int					k;
-	private int 				n;
-	private double 				tol;
-	private int 				maxIter;
+	private DenseMatrix         U;
+	private double[]            sigmas;
+	private Multiplicator       multiplicator;
+	private int                 k;
+	private int                 n;
+	private double              tol;
+	private int                 maxIter;
 	
 	/**
 	 * @param mul - the function, which provides the multiplication of data matrix 

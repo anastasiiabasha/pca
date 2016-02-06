@@ -20,9 +20,9 @@ import no.uib.cipr.matrix.DenseVector;
  */
 public class DistMatrixVectorMultiplicator implements Multiplicator {
 
-	private DataSet<double[]> 		dataset;
-	private double[] 				means;
-	private int						m;
+	private DataSet<double[]>       dataset;
+	private double[]                means;
+	private int                     m;
 	
 	/**
 	 * @param dataset - original dataset in Flink DataSet<double[]> format
