@@ -56,7 +56,7 @@ public class PCA {
 			throw new Exception("Number of columns too big for computation");
 		}
 		
-		if (n > 10000) {
+		if (n > 15000) {
 			if (k > n/2)
 				System.out.println("WARNING: At least " + n * n / 250000 + " MB of memory required!");
 			else 
@@ -64,7 +64,7 @@ public class PCA {
 		}
 		
 		if (mode == PCAmode.AUTO) {
-			if (n < 15000 || (k > n / 3 && n <= 15000)) {
+			if (n < 15000) {
 				mode = PCAmode.LOCAL;
 			} else {
 				mode = PCAmode.DIST;
@@ -102,8 +102,7 @@ public class PCA {
 		case DIST: {
 				double tol = 1e-10;
 				int maxIter = Math.max(300, k * 3);
-				svd = new ArpackSVD(new DistMatrixVectorMultiplicator(dataset, means, m), 
-						k, n, tol, maxIter);
+				svd = new ArpackSVD(k, n, m, tol, maxIter, dataset, means);
 			}
 			break;
 		}
