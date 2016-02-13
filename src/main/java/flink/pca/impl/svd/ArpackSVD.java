@@ -3,9 +3,9 @@ package flink.pca.impl.svd;
 import java.io.Serializable;
 import java.util.Arrays;
 import java.util.Collection;
-import java.util.HashMap;
+//import java.util.HashMap;
 import java.util.List;
-import java.util.Map.Entry;
+//import java.util.Map.Entry;
 
 import no.uib.cipr.matrix.DenseMatrix;
 
@@ -23,8 +23,6 @@ import org.netlib.util.doubleW;
 import org.netlib.util.intW;
 
 import com.github.fommil.netlib.ARPACK;
-
-import flink.pca.impl.mult.Multiplicator;
 
 /**
  * Class for SVD computation.
@@ -57,7 +55,6 @@ public class ArpackSVD implements SVD {
 
 	private DenseMatrix         U;
 	private double[]            sigmas;
-	private Multiplicator       multiplicator;
 	private int                 k;
 	private int                 n;
 	private double              tol;
@@ -76,7 +73,6 @@ public class ArpackSVD implements SVD {
 	 */
 	public ArpackSVD(int k, int n, int m, double tol, int maxIter, DataSet<double[]> matrix, double[] means) {
 		this.matrix = matrix;
-//		this.multiplicator = mul;
 		this.means = means;
 		this.m = m;
 		this.k = k;
@@ -125,22 +121,23 @@ public class ArpackSVD implements SVD {
 			
 			//Pre-compute the dot-product of matrix row, matrix column and given vector
 			//in this partition of data
-			HashMap<Integer, Double> hash = new HashMap<Integer, Double>();
+//			HashMap<Integer, Double> hash = new HashMap<Integer, Double>();
 			for (double[] vector : values) {
 				for(int i = 0; i < vector.length; i++) {
 					for(int j = 0; j < vector.length; j++){
-						if (hash.containsKey(i)) {
-							//also, center the matrix with a given means vector
-							hash.put(i, hash.get(i) + (vector[i] - means[i]) * (vector[j] - means[j]) * vectorV[j] / m);
-						} else {
-							hash.put(i, (vector[i] - means[i]) * (vector[j] - means[j]) * vectorV[j] / m);
-						}
+						out.collect(new Tuple3<Integer, Double, Integer>(i, (vector[i] - means[i]) * (vector[j] - means[j]) * vectorV[j] / m, 0));
+//						if (hash.containsKey(i)) {
+//							//also, center the matrix with a given means vector
+//							hash.put(i, hash.get(i) + (vector[i] - means[i]) * (vector[j] - means[j]) * vectorV[j] / m);
+//						} else {
+//							hash.put(i, (vector[i] - means[i]) * (vector[j] - means[j]) * vectorV[j] / m);
+//						}
 					}
 				}
 			}
-			for (Entry<Integer, Double> entry : hash.entrySet()) {
-				out.collect(new Tuple3<Integer, Double, Integer>(entry.getKey(), entry.getValue(), 0));
-			}
+//			for (Entry<Integer, Double> entry : hash.entrySet()) {
+//				out.collect(new Tuple3<Integer, Double, Integer>(entry.getKey(), entry.getValue(), 0));
+//			}
 		}
 	}
 	

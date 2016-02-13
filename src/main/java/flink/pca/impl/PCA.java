@@ -15,7 +15,6 @@ import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.api.java.tuple.Tuple3;
 import org.apache.flink.util.Collector;
 
-import flink.pca.impl.mult.DistMatrixVectorMultiplicator;
 import flink.pca.impl.svd.ArpackSVD;
 import flink.pca.impl.svd.LocalSVD;
 import flink.pca.impl.svd.SVD;
