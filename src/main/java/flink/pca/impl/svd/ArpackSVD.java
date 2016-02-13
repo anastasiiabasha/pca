@@ -3,9 +3,13 @@ package flink.pca.impl.svd;
 import java.io.Serializable;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.HashMap;
 //import java.util.HashMap;
 import java.util.List;
 //import java.util.Map.Entry;
+
+
+import java.util.Map.Entry;
 
 import no.uib.cipr.matrix.DenseMatrix;
 
@@ -121,23 +125,22 @@ public class ArpackSVD implements SVD {
 			
 			//Pre-compute the dot-product of matrix row, matrix column and given vector
 			//in this partition of data
-//			HashMap<Integer, Double> hash = new HashMap<Integer, Double>();
+			HashMap<Integer, Double> hash = new HashMap<Integer, Double>();
 			for (double[] vector : values) {
 				for(int i = 0; i < vector.length; i++) {
 					for(int j = 0; j < vector.length; j++){
-						out.collect(new Tuple3<Integer, Double, Integer>(i, (vector[i] - means[i]) * (vector[j] - means[j]) * vectorV[j] / m, 0));
-//						if (hash.containsKey(i)) {
-//							//also, center the matrix with a given means vector
-//							hash.put(i, hash.get(i) + (vector[i] - means[i]) * (vector[j] - means[j]) * vectorV[j] / m);
-//						} else {
-//							hash.put(i, (vector[i] - means[i]) * (vector[j] - means[j]) * vectorV[j] / m);
-//						}
+						if (hash.containsKey(i)) {
+							//also, center the matrix with a given means vector
+							hash.put(i, hash.get(i) + (vector[i] - means[i]) * (vector[j] - means[j]) * vectorV[j] / m);
+						} else {
+							hash.put(i, (vector[i] - means[i]) * (vector[j] - means[j]) * vectorV[j] / m);
+						}
 					}
 				}
 			}
-//			for (Entry<Integer, Double> entry : hash.entrySet()) {
-//				out.collect(new Tuple3<Integer, Double, Integer>(entry.getKey(), entry.getValue(), 0));
-//			}
+			for (Entry<Integer, Double> entry : hash.entrySet()) {
+				out.collect(new Tuple3<Integer, Double, Integer>(entry.getKey(), entry.getValue(), 0));
+			}
 		}
 	}
 	
@@ -171,127 +174,48 @@ public class ArpackSVD implements SVD {
 			String bmat = "I";
 			String which = "LM";
 			
-			int outputOffset = arpackContext.getIpntr()[1] - 1;
+			int oldIdo = arpackContext.getIdo();
+			double oldTol = arpackContext.getTol();
+			double[] oldResid = new double[arpackContext.getResid().length];
+			System.arraycopy(arpackContext.getResid(), 0, oldResid, 0, arpackContext.getResid().length);
+			double[] oldV = new double[arpackContext.getV().length];
+			System.arraycopy(arpackContext.getV(), 0, oldV, 0, arpackContext.getV().length);
+			
+			int[] oldIparam = new int[arpackContext.getIparam().length];
+			System.arraycopy(arpackContext.getIparam(), 0, oldIparam, 0, arpackContext.getIparam().length);
+			int[] oldIpntr = new int[arpackContext.getIpntr().length];
+			System.arraycopy(arpackContext.getIpntr(), 0, oldIpntr, 0, arpackContext.getIpntr().length);
+			int oldInfo = arpackContext.getInfo();
+			double[] oldWorkd = new double[arpackContext.getWorkd().length];
+			System.arraycopy(arpackContext.getWorkd(), 0, oldWorkd, 0, arpackContext.getWorkd().length);
+			double[] oldWorkl = new double[arpackContext.getWorkl().length];
+			System.arraycopy(arpackContext.getWorkl(), 0, oldWorkl, 0, arpackContext.getWorkl().length);
+			
+			ArpackContext newArpackContext = new ArpackContext(oldIdo, oldTol, oldResid, oldV, oldIparam, oldIpntr, oldInfo, oldWorkd, oldWorkl);
+			
+			int outputOffset = newArpackContext.getIpntr()[1] - 1;
 			
 			double[] y = new double[n];
 			for (Tuple3<Integer, Double, Integer> tuple : values) {
 				y[tuple.f0] = tuple.f1;
 			}
 			
-			System.arraycopy(y, 0, arpackContext.getWorkd(), outputOffset, n);
+			System.arraycopy(y, 0, newArpackContext.getWorkd(), outputOffset, n);
 			
-			intW ido = new intW(arpackContext.getIdo());
-			doubleW tol = new doubleW(arpackContext.getTol());
-			intW info = new intW(arpackContext.getInfo());
+			intW ido = new intW(newArpackContext.getIdo());
+			doubleW tol = new doubleW(newArpackContext.getTol());
+			intW info = new intW(newArpackContext.getInfo());
 
 			// call ARPACK's reverse communication
-			arpack.dsaupd(ido, bmat, n, which, k, tol, arpackContext.getResid(), ncv, arpackContext.getV(), n, 
-					arpackContext.getIparam(), arpackContext.getIpntr(), arpackContext.getWorkd(), arpackContext.getWorkl(), 
-					arpackContext.getWorkl().length, info);
+			arpack.dsaupd(ido, bmat, n, which, k, tol, newArpackContext.getResid(), ncv, newArpackContext.getV(), n, 
+					newArpackContext.getIparam(), newArpackContext.getIpntr(), newArpackContext.getWorkd(), newArpackContext.getWorkl(), 
+					newArpackContext.getWorkl().length, info);
 			
-			arpackContext.setIdo(ido.val);
-			arpackContext.setTol(tol.val);
-			arpackContext.setInfo(info.val);
-			out.collect(arpackContext);
+			newArpackContext.setIdo(ido.val);
+			newArpackContext.setTol(tol.val);
+			newArpackContext.setInfo(info.val);
+			out.collect(newArpackContext);
 		}
-	}
-	
-	private class ArpackContext implements Serializable {
-		
-		private int              ido;
-		private double           tol;
-		private double[]         resid;
-		private double[]         v;
-		private int[]            iparam;
-		private int[]            ipntr;
-		private int              info;
-		private double[]         workd;
-		private double[]         workl;
-		
-		
-		public ArpackContext(int ido, double tol, double[] resid, double[] v, int[] iparam, int[] ipntr, double[] workd, double[] workl) {
-			this.setIdo(ido);
-			this.setTol(tol);
-			this.setResid(resid);
-			this.setV(v);
-			this.setIparam(iparam);
-			this.setIpntr(ipntr);
-			this.setWorkd(workd);
-			this.setWorkl(workl);
-		}
-
-		public int getIdo() {
-			return ido;
-		}
-
-		public void setIdo(int ido) {
-			this.ido = ido;
-		}
-		
-		public double getTol() {
-			return tol; 
-		}
-		
-		public void setTol(double tol) {
-			this.tol = tol;
-		}
-
-		public double[] getResid() {
-			return resid;
-		}
-
-		public void setResid(double[] resid) {
-			this.resid = resid;
-		}
-
-		public double[] getV() {
-			return v;
-		}
-
-		public void setV(double[] v) {
-			this.v = v;
-		}
-
-		public int[] getIparam() {
-			return iparam;
-		}
-
-		public void setIparam(int[] iparam) {
-			this.iparam = iparam;
-		}
-
-		public int[] getIpntr() {
-			return ipntr;
-		}
-
-		public void setIpntr(int[] ipntr) {
-			this.ipntr = ipntr;
-		}
-
-		public int getInfo() {
-			return info;
-		}
-
-		public void setInfo(int info) {
-			this.info = info;
-		}
-
-		public double[] getWorkd() {
-			return workd;
-		}
-
-		public void setWorkd(double[] workd) {
-			this.workd = workd;
-		}
-
-		public double[] getWorkl() {
-			return workl;
-		}
-
-		public void setWorkl(double[] workl) {
-			this.workl = workl;
-		}
-		
 	}
 
 	private class EpsilonFilter implements  FilterFunction<ArpackContext> {
@@ -361,7 +285,7 @@ public class ArpackSVD implements SVD {
 							+ " This flag is not compatible with Mode 1: A*x = lambda*x, A symmetric.");
 		}
 
-		DataSet<ArpackContext> arpackData = env.fromElements(new ArpackContext(ido.val, tolW.val, resid, v, iparam, ipntr, workd, workl));
+		DataSet<ArpackContext> arpackData = env.fromElements(new ArpackContext(ido.val, tolW.val, resid, v, iparam, ipntr, info.val, workd, workl));
 		
 		IterativeDataSet<ArpackContext> loop = arpackData.iterate(maxIter);
 		DataSet<ArpackContext> covarianceMatrixWithVector = matrix
