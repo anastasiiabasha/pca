@@ -174,24 +174,7 @@ public class ArpackSVD implements SVD {
 			String bmat = "I";
 			String which = "LM";
 			
-			int oldIdo = arpackContext.getIdo();
-			double oldTol = arpackContext.getTol();
-			double[] oldResid = new double[arpackContext.getResid().length];
-			System.arraycopy(arpackContext.getResid(), 0, oldResid, 0, arpackContext.getResid().length);
-			double[] oldV = new double[arpackContext.getV().length];
-			System.arraycopy(arpackContext.getV(), 0, oldV, 0, arpackContext.getV().length);
-			
-			int[] oldIparam = new int[arpackContext.getIparam().length];
-			System.arraycopy(arpackContext.getIparam(), 0, oldIparam, 0, arpackContext.getIparam().length);
-			int[] oldIpntr = new int[arpackContext.getIpntr().length];
-			System.arraycopy(arpackContext.getIpntr(), 0, oldIpntr, 0, arpackContext.getIpntr().length);
-			int oldInfo = arpackContext.getInfo();
-			double[] oldWorkd = new double[arpackContext.getWorkd().length];
-			System.arraycopy(arpackContext.getWorkd(), 0, oldWorkd, 0, arpackContext.getWorkd().length);
-			double[] oldWorkl = new double[arpackContext.getWorkl().length];
-			System.arraycopy(arpackContext.getWorkl(), 0, oldWorkl, 0, arpackContext.getWorkl().length);
-			
-			ArpackContext newArpackContext = new ArpackContext(oldIdo, oldTol, oldResid, oldV, oldIparam, oldIpntr, oldInfo, oldWorkd, oldWorkl);
+			ArpackContext newArpackContext = arpackContext.copy();
 			
 			int outputOffset = newArpackContext.getIpntr()[1] - 1;
 			

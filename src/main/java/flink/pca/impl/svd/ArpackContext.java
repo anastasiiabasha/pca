@@ -99,4 +99,22 @@ public class ArpackContext implements Serializable {
 		this.workl = workl;
 	}
 	
+	public ArpackContext copy() {
+		double[] oldResid = new double[resid.length];
+		System.arraycopy(resid, 0, oldResid, 0, resid.length);
+		double[] oldV = new double[v.length];
+		System.arraycopy(v, 0, oldV, 0, v.length);
+		
+		int[] oldIparam = new int[iparam.length];
+		System.arraycopy(iparam, 0, oldIparam, 0, iparam.length);
+		int[] oldIpntr = new int[ipntr.length];
+		System.arraycopy(ipntr, 0, oldIpntr, 0, ipntr.length);
+		double[] oldWorkd = new double[workd.length];
+		System.arraycopy(workd, 0, oldWorkd, 0, workd.length);
+		double[] oldWorkl = new double[workl.length];
+		System.arraycopy(workl, 0, oldWorkl, 0, workl.length);
+		
+		return new ArpackContext(ido, tol, oldResid, oldV, oldIparam, oldIpntr, info, oldWorkd, oldWorkl);
+	}
+	
 }
