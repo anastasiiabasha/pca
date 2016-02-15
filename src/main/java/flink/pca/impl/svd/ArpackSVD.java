@@ -150,6 +150,7 @@ public class ArpackSVD implements SVD {
 		private int              k;
 		private int              n;
 		private ArpackContext    arpackContext;
+		private ArpackContext    newArpackContext;
 		
 		public ArpackReduce(int n, int k) {
 			this.k = k;
@@ -174,7 +175,10 @@ public class ArpackSVD implements SVD {
 			String bmat = "I";
 			String which = "LM";
 			
-			ArpackContext newArpackContext = arpackContext.copy();
+			if (newArpackContext == null)
+				newArpackContext = arpackContext.hardCopy();
+			else
+				newArpackContext = arpackContext.softCopy(newArpackContext);
 			
 			int outputOffset = newArpackContext.getIpntr()[1] - 1;
 			

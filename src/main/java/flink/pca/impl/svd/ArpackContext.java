@@ -99,7 +99,7 @@ public class ArpackContext implements Serializable {
 		this.workl = workl;
 	}
 	
-	public ArpackContext copy() {
+	public ArpackContext hardCopy() {
 		double[] oldResid = new double[resid.length];
 		System.arraycopy(resid, 0, oldResid, 0, resid.length);
 		double[] oldV = new double[v.length];
@@ -115,6 +115,19 @@ public class ArpackContext implements Serializable {
 		System.arraycopy(workl, 0, oldWorkl, 0, workl.length);
 		
 		return new ArpackContext(ido, tol, oldResid, oldV, oldIparam, oldIpntr, info, oldWorkd, oldWorkl);
+	}
+	
+	public ArpackContext softCopy(ArpackContext dest) {
+		dest.ido = ido;
+		dest.tol = tol;
+		System.arraycopy(resid, 0, dest.resid, 0, resid.length);
+		System.arraycopy(v, 0, dest.v, 0, v.length);
+		System.arraycopy(iparam, 0, dest.iparam, 0, iparam.length);
+		System.arraycopy(ipntr, 0, dest.ipntr, 0, ipntr.length);
+		dest.info = info;
+		System.arraycopy(workd, 0, dest.workd, 0, workd.length);
+		System.arraycopy(workl, 0, dest.workl, 0, workl.length);
+		return dest;
 	}
 	
 }
