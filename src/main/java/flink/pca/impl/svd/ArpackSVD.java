@@ -14,7 +14,9 @@ import java.util.Map.Entry;
 import no.uib.cipr.matrix.DenseMatrix;
 
 import org.apache.flink.api.common.functions.FilterFunction;
+import org.apache.flink.api.common.functions.RichFlatMapFunction;
 import org.apache.flink.api.common.functions.RichGroupReduceFunction;
+import org.apache.flink.api.common.functions.RichMapFunction;
 import org.apache.flink.api.common.functions.RichMapPartitionFunction;
 import org.apache.flink.api.java.DataSet;
 import org.apache.flink.api.java.ExecutionEnvironment;
@@ -125,25 +127,77 @@ public class ArpackSVD implements SVD {
 			
 			//Pre-compute the dot-product of matrix row, matrix column and given vector
 			//in this partition of data
-			HashMap<Integer, Double> hash = new HashMap<Integer, Double>();
+//			HashMap<Integer, Double> hash = new HashMap<Integer, Double>();
 			for (double[] vector : values) {
 				for(int i = 0; i < vector.length; i++) {
 					for(int j = 0; j < vector.length; j++){
-						if (hash.containsKey(i)) {
+//						if (hash.containsKey(i)) {
 							//also, center the matrix with a given means vector
-							hash.put(i, hash.get(i) + (vector[i] - means[i]) * (vector[j] - means[j]) * vectorV[j] / m);
-						} else {
-							hash.put(i, (vector[i] - means[i]) * (vector[j] - means[j]) * vectorV[j] / m);
-						}
+//							hash.put(i, hash.get(i) + (vector[i] - means[i]) * (vector[j] - means[j]) * vectorV[j] / m);
+//						} else {
+//							hash.put(i, (vector[i] - means[i]) * (vector[j] - means[j]) * vectorV[j] / m);
+//						}
+						out.collect(new Tuple3<Integer, Double, Integer>(i,  (vector[i] - means[i]) * (vector[j] - means[j]) * vectorV[j] / m, 0));
 					}
 				}
 			}
-			for (Entry<Integer, Double> entry : hash.entrySet()) {
-				out.collect(new Tuple3<Integer, Double, Integer>(entry.getKey(), entry.getValue(), 0));
-			}
+//			for (Entry<Integer, Double> entry : hash.entrySet()) {
+//				out.collect(new Tuple3<Integer, Double, Integer>(entry.getKey(), entry.getValue(), 0));
+//			}
 		}
 	}
 	
+	private static final class MultMapMatrix extends RichFlatMapFunction<double[], Tuple3<Integer, Double, Integer>> {
+
+		private static final long 	serialVersionUID = 1L;
+		
+		private double[] 			means;
+		private double[] 			vectorV;
+		private int 				m;
+		private int                 n;
+		
+		@Override
+		public void open(Configuration parameters) throws Exception {
+			Collection<ArpackContext> collection = getRuntimeContext().getBroadcastVariable("context");
+			for (ArpackContext value : collection) {
+				int inputOffset = value.getIpntr()[0] - 1;
+				vectorV = Arrays.copyOfRange(value.getWorkd(),
+						inputOffset, inputOffset + n);
+			}
+		}
+		
+		public MultMapMatrix(double[] means, int m, int n) {
+			this.means = means;
+			this.m = m;
+			this.n = n;
+		}
+
+		@Override
+		public void flatMap(double[] vector,
+				Collector<Tuple3<Integer, Double, Integer>> out)
+				throws Exception {
+			
+			//Pre-compute the dot-product of matrix row, matrix column and given vector
+			//in this partition of data
+//			HashMap<Integer, Double> hash = new HashMap<Integer, Double>();
+//			for (double[] vector : values) {
+				for(int i = 0; i < vector.length; i++) {
+					for(int j = 0; j < vector.length; j++){
+//						if (hash.containsKey(i)) {
+							//also, center the matrix with a given means vector
+//							hash.put(i, hash.get(i) + (vector[i] - means[i]) * (vector[j] - means[j]) * vectorV[j] / m);
+//						} else {
+//							hash.put(i, (vector[i] - means[i]) * (vector[j] - means[j]) * vectorV[j] / m);
+//						}
+						out.collect(new Tuple3<Integer, Double, Integer>(i,  (vector[i] - means[i]) * (vector[j] - means[j]) * vectorV[j] / m, 0));
+					}
+				}
+//			}
+//			for (Entry<Integer, Double> entry : hash.entrySet()) {
+//				out.collect(new Tuple3<Integer, Double, Integer>(entry.getKey(), entry.getValue(), 0));
+//			}
+		}
+	}
 	
 	private static class ArpackReduce extends RichGroupReduceFunction<Tuple3<Integer,Double, Integer>, ArpackContext> {
 		
@@ -276,7 +330,7 @@ public class ArpackSVD implements SVD {
 		
 		IterativeDataSet<ArpackContext> loop = arpackData.iterate(maxIter);
 		DataSet<ArpackContext> covarianceMatrixWithVector = matrix
-				.mapPartition(new DistMultMapMatrix(means, m, n)).withBroadcastSet(loop, "context")
+				.flatMap(new MultMapMatrix(means, m, n)).withBroadcastSet(loop, "context")
 				.groupBy(0).sum(1).and(Aggregations.MAX, 2).groupBy(2)
 				.reduceGroup(new ArpackReduce(n, k)).withBroadcastSet(loop, "context");
 		
